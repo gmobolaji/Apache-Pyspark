@@ -1,0 +1,16 @@
+Lab Demo Steps:
+1. Create a new project in Pycharm
+2. Set interpreter
+3. Add Pyspark dependency
+4. Execute the project
+
+
+1. Create a new project in Pycharm
+Download Python and PyCharm and them click new project
+2. Set interpreter
+File> Settings> Project name> Python interpreter(make sure interpreter is the same as the python version you have 
+3. Add Pyspark dependency
+Open terminal> type pip install pypandoc> enter
+To Install pyspark> Type pip --no-cache-dir install pyspark > Enter
+verify by going back to settings>project name> interpreter> should be listed in packages under interpreter
+4. Execute the project
