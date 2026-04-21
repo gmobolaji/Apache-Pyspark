@@ -1,0 +1,42 @@
+Fundamentals of Spark Porgramming
+- Install and Use Spark
+-Spark Executiona nd model
+-Spark Programming Model
+-Data Sources and Sinks API
+-Dataframe and data set transformation
+
+Spark 
+-Unified analytics engine for large scale data processing
+[Set of librtariede and SPIs] [-Spark SQL Data Frames  -Streaming  - Mllib Machine Learning  -GraphX raph Computation]
+[Spark Core] -Scala  -Java  -Python  -R
+Distrinuted computnig engniine and a set of code apis
+Spark gives a data processing model
+Needs Cluster Manager -- YARN Kubernetes Metos
+Needs storage suste, -- Amazin s3 Azure Blob GCP ETC
+All you can do with spark is run data processing workload mamages by Spark compute engine
+Spark witll abstract away the effect that you are coding to execute your program on a cluster of computers
+-best case sql and tables, worst case rdds or dataframes
+Provides capability od SQL queries, batch processing, streaming, structures/semistructures, graph processing, ml, ets--- Multi platform abilities
+
+Spark compute engine
+- is the code that runs and processing data processing work
+-Breaks work into tasks
+-Monitiors tasks
+-Schedules tasks on cluster for parralell execution
+-Provides fault tolorance
+-Provides data resources to tasks
+
+[Spark Core] -Scala  -Java  -Python  -R
+-programming interface layer
+-Provides core APIs 
+-APIs used to write data processing logic during initial days of spark
+
+[Set of packages, libraries and APIs] [-Spark SQL Data Frames  -Streaming  - Mllib Machine Learning  -GraphX raph Computation]
+- actualy using the underlying spark core that will ultimately go to compute engine
+-4 types of data processing requirtements
+-Spark SQL Data Frames : collection of spark sqla nd dataframe api 
+-Streaming   : spark streaming libraries that allow you to process unbounded and continuous streams of data
+-Mllib Machine Learning  : libraries specifically for ML deep learingn and AI
+-GraphX graph Computation : Graph processing libraries and algoritims
+
+
