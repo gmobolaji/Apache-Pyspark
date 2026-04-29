@@ -13,4 +13,36 @@ File> Settings> Project name> Python interpreter(make sure interpreter is the sa
 Open terminal> type pip install pypandoc> enter
 To Install pyspark> Type pip --no-cache-dir install pyspark > Enter
 verify by going back to settings>project name> interpreter> should be listed in packages under interpreter
+
 4. Execute the project
+A. Create a directory folder for data
+ - Right click on project name> Directory> name the directory
+ - Copy file from file explorer> right click then paste file to directory as text file (.csv)
+b. Go to venv (virtual environ)> find and open Lib> find _init_.py>  add logger.py and utils.py > paste insdie the lib directory
+copy code into main .py file.
+make sure the components include:
+Go to directory where Spark is present
+click on conf
+click on spark-defaults.ccconf
+remove .template file
+copy line with JavaOptions
+and find value (log4j.proprty)
+paste log4j.prp file into projects
+
+then do the same for spark.config
+paste into project
+
+Execute project
+must be passed via cmd line
+edit> config in run> provide file path and extension for new additions
+Run again
+
+-Import libraries
+logger = log4j
+If args are invalid, display error, if not " hello spark.
+create df to read file added in data directory
+(load, repartition on certain values
+create a new df using count to count data present in partition
+display count
+let logger display job is complete
+
