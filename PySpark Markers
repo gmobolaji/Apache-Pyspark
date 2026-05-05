@@ -1,0 +1,24 @@
+Designed and operated large-scale ingestion and ELT pipelines PySpark.
+Source (API / DB / files)---- Rest API
+        ↓
+ADF (orchestration) → build pipeline, trigger, copy activity
+        ↓
+Raw (Bronze - Data Lake)
+        ↓
+Databricks (PySpark transforms---- clean + transform data)  Databricks → run notebooks
+        ↓
+Silver → Gold layers
+        ↓
+Warehouse / BI
+
+In ADF:
+
+Use Databricks Notebook Activity
+Pass parameters (file path, date, etc.)
+Trigger PySpark job
+https://learn.microsoft.com/en-us/training/courses/dp-3011
+
+Built and maintained ETL pipelines using PySpark.
+Built ingestion pipelines using PySpark.
+Processed and reconciled $1B+ in premium and claims data PySpark, and stored logic across multiple source systems.
+Built PySpark ingestion pipelines for XML, JSON, and CSV data, storing curated outputs in Azure Data Lake Storage (ADLS).
