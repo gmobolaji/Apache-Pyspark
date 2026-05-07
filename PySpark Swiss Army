@@ -1,0 +1,603 @@
+from pyspark.sql import SparkSession
+
+data = [
+  (1, '2025-01-01', 'Electronics', 3, 120.00),
+  (2, '2025-01-01', 'Clothing', 1, 45.00),
+  (3, '2025-01-02', 'Electronics', 2, 80.00),
+  (4, '2025-01-02', 'Sports', 5, 200.00),
+  (5, '2025-01-03', 'Clothing', 3, 135.00),
+  (6, '2025-01-03', 'Electronics', 1, 40.00),
+  (7, '2025-01-03', 'Sports', 2, 90.00)
+]
+
+columns = ["order_id", "order_date", "category", "quantity", "amount"]
+
+spark_df = spark.createDataFrame(data, columns)
+spark_df.createOrReplaceTempView("sales")
+
+display(spark_df)
+
+
+from pyspark.sql.functions import current_timestamp
+data=[(1,"NJ",250),(2,"PA",175),(3,"NY",300)]
+df=spark.createDataFrame(data,["policy_id","state","premium"]) \
+        .withColumn("ingest_time",current_timestamp())
+df.write.format("delta").mode("overwrite").saveAsTable("bronze_premium")
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Medallion Arch
+
+from pyspark.sql.functions import current_timestamp
+data=[(1,"NJ",250),(2,"PA",175),(3,"NY",300)]
+df=spark.createDataFrame(data,["policy_id","state","premium"]) \
+        .withColumn("ingest_time",current_timestamp())
+df.write.format("delta").mode("overwrite").saveAsTable("bronze_premium")
+
+
+from pyspark.sql.functions import trim, upper
+silver = (spark.table("bronze_premium")
+          .withColumn("state", upper(trim("state"))))
+silver.write.format("delta").mode("overwrite").saveAsTable("silver_premium")
+
+
+from pyspark.sql import functions as F
+
+gold_df = (
+    silver
+    .groupBy("region")
+    .agg(F.sum("premium").alias("premium_sum"))
+)
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Basics
+workspace.default.generic_foodworkspace.default.generic_fooddf = spark.read.option("header",True).option("infesrSchema",True).csv("/Volumes/workspace/default/day1/Power BI Sales Dataset 80 20 Graph.csv")
+df.printSchema()
+df.show(5)
+
+from pyspark.sql.functions import regexp_replace, col
+
+df = df.withColumn("quantity_clean", regexp_replace(col("quantity"), "[^0-9.]", "").cast("double")) \
+       .withColumn("price_clean", regexp_replace(col("sales"), "[^0-9.]", "").cast("double")) \
+       .withColumn("total", col("quantity_clean") * col("price_clean"))
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Basics-- RegEXp
+from pyspark.sql.functions import col, regexp_replace, trim, when
+
+# Clean Quantity column safely
+df = df.withColumn(
+    "quantity_clean",
+    when(
+        regexp_replace(trim(col("Quantity")), "[^0-9.]", "").rlike("^[0-9.]+$"),
+        regexp_replace(trim(col("Quantity")), "[^0-9.]", "").cast("double")
+    ).otherwise(None)
+)
+
+# Clean Sales column safely
+df = df.withColumn(
+    "sales_clean",
+    when(
+        regexp_replace(trim(col("Sales")), "[^0-9.]", "").rlike("^[0-9.]+$"),
+        regexp_replace(trim(col("Sales")), "[^0-9.]", "").cast("double")
+    ).otherwise(None)
+)
+
+# Compute total safely
+df = df.withColumn("total", col("quantity_clean") * col("sales_clean"))
+
+# Display results
+df.select("Quantity", "quantity_clean", "Sales", "sales_clean", "total").show(5)
+df.printSchema()
+
+
+df = df.filter(col("price_clean").isNotNull())
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#Q1 — Create a Delta table from a DataFrame
+#Goal: create a Delta table named sales_bronze
+from pyspark.sql import Row
+from pyspark.sql.functions import col
+
+# Bronze
+data = [
+    Row(order_id=1, amount=100),
+    Row(order_id=2, amount=250),
+    Row(order_id=3, amount=150)
+]
+
+df = spark.createDataFrame(data)
+
+df.write.format("delta").mode("overwrite").saveAsTable("sales_bronze")
+
+spark.table("sales_bronze").show()
+
+
+# Q2 — Read that Delta table and transform it (Silver)
+# Goal: create a curated table
+silver_df = (
+    spark.table("sales_bronze")
+         .withColumn("amount_usd", col("amount") * 1.00)
+)
+
+silver_df.write.format("delta").mode("overwrite").saveAsTable("sales_silver")
+
+spark.table("sales_silver").show()
+
+
+# Q3 — Run a Delta UPDATE
+# Goal: add discount to all orders above 200
+spark.sql("""
+UPDATE sales_silver
+SET amount_usd = amount_usd * 0.9
+WHERE amount_usd > 200
+""")
+spark.sql("SELECT * FROM sales_silver").show()
+
+
+
+# Q4 — Run a Delta MERGE (SCD-like)
+# Goal: merge new orders into Silver
+# Incoming DF
+new_data = [
+    (2, 300),   # updated amount
+    (4, 500)    # new order
+]
+
+incoming_df = spark.createDataFrame(new_data, ["order_id", "amount"])
+incoming_df.createOrReplaceTempView("incoming_updates")
+
+# Merge Script
+spark.sql("""
+MERGE INTO sales_silver tgt
+USING incoming_updates src
+ON tgt.order_id = src.order_id
+WHEN MATCHED THEN UPDATE SET tgt.amount_usd = src.amount
+WHEN NOT MATCHED THEN INSERT (order_id, amount_usd) VALUES (src.order_id, src.amount)
+""")
+
+
+spark.sql("SELECT * FROM sales_silver ORDER BY order_id").show()
+
+
+# Q5 — Create a Gold aggregate table
+spark.sql("""
+CREATE OR REPLACE TABLE sales_gold AS
+SELECT
+    AVG(amount_usd) AS avg_amount,
+    SUM(amount_usd) AS total_amount
+FROM sales_silver
+""")
+
+spark.sql("SELECT * FROM sales_gold").show()
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Joins and Repartitions
+
+
+from pyspark.sql import Row
+from pyspark.sql.functions import col
+
+
+customers = [
+    Row(customer_id=1, name="Alice", region="East"),
+    Row(customer_id=2, name="Bob", region="West"),
+    Row(customer_id=3, name="Carol", region="South"),
+]
+
+orders = [
+    Row(order_id=101, customer_id=1, amount=120),
+    Row(order_id=102, customer_id=1, amount=200),
+    Row(order_id=103, customer_id=4, amount=80),
+]
+
+customers_df = spark.createDataFrame(customers)
+orders_df = spark.createDataFrame(orders)
+
+
+#Q1 — INNER JOIN
+#You have:
+#orders DF: order_id, customer_id, amount
+#customers DF: customer_id, region
+#Return: order_id, customer_name, region, amountnONLY for matching customers
+
+joined = (
+    orders_df.alias("o")
+    .join(customers_df.alias("c"), on="customer_id", how="inner")
+)
+
+joined.show()
+
+#Q2 — LEFT JOIN with null filtering
+#Get all orders WITH OR WITHOUT a customer match and return a column is_orphan = true/false
+orders_left = (
+    orders_df.alias("o")
+    .join(customers_df.alias("c"), on="customer_id", how="left")
+    .withColumn("is_orphan", col("name").isNull())
+)
+
+orders_left.show()
+
+
+#Q3 — FULL OUTER JOIN
+# Show customers with no orders AND orders with no customers
+full = (
+    orders_df.alias("o")
+    .join(customers_df.alias("c"), on="customer_id", how="full")
+)
+
+full.show()
+
+
+#Q4 — Repartition DataFrame before JOIN
+# How would you reduce shuffle if joining on customer_id?
+orders_rp = orders_df.repartition(10, "customer_id")
+customers_rp = customers_df.repartition(10, "customer_id")
+
+joined_opt = (
+    orders_rp.alias("o")
+    .join(customers_rp.alias("c"), "customer_id")
+)
+
+joined_opt.show()
+
+#Q5 — Validate skew mitigation
+# Demonstrate skew handling using REPARTITION(50) before join
+
+orders_skew_fix = orders_df.repartition(50)   # blunt-force skew handling
+
+customers_skew_fix = customers_df.repartition(50)
+
+skew_optimized_join = orders_skew_fix.join(customers_skew_fix, "customer_id")
+
+skew_optimized_join.show()
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Loops in Pandas Pyspark
+
+
+#Step 1: Create the dataset in PySpark
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType, DoubleType
+
+spark = SparkSession.builder.appName("PandasVsPySparkLoops").getOrCreate()
+
+data = [
+    (1001, "John Doe", "Electronics", 2, 500.0, "East"),
+    (1002, "Jane Smith", "Home", 1, 150.0, "West"),
+    (1003, "Bob Lee", "Electronics", 5, 100.0, "East"),
+    (1004, "Alice Wong", "Furniture", 3, 300.0, "North"),
+    (1005, "Sam Patel", "Home", 2, 150.0, "West"),
+    (1006, "Linda Gray", "Furniture", 1, 450.0, "South")
+]
+
+schema = StructType([
+    StructField("order_id", IntegerType(), True),
+    StructField("customer", StringType(), True),
+    StructField("category", StringType(), True),
+    StructField("quantity", IntegerType(), True),
+    StructField("price", DoubleType(), True),
+    StructField("region", StringType(), True)
+])
+
+df = spark.createDataFrame(data, schema)
+df.show()
+
+
+#convert it to Pandas to practice both sides
+pandas_df = df.toPandas()
+
+#pyspark
+# 1 Add a derived column using conditional logic
+# Tag each row as “Bulk” if quantity ≥ 3, else “Regular”.
+from pyspark.sql.functions import when, col
+
+df = df.withColumn("order_type", when(col("quantity") >= 3, "Bulk").otherwise("Regular"))
+df.show()
+
+#pandas
+# 1 Add a derived column using conditional logic
+# Tag each row as “Bulk” if quantity ≥ 3, else “Regular”.
+for i, row in pandas_df.iterrows():
+    if row["quantity"] >= 3:
+        pandas_df.at[i, "order_type"] = "Bulk"
+    else:
+        pandas_df.at[i, "order_type"] = "Regular"
+display(pandas_df)
+
+#Pandas
+# 2 Compute total order value
+# Calculate total_value = quantity * price.
+for i, row in pandas_df.iterrows():
+    pandas_df.at[i, "total_value"] = row["quantity"] * row["price"]
+display(pandas_df)
+
+#Pyspark
+# 2 Compute total order value
+# Calculate total_value = quantity * price
+df = df.withColumn("total_value", col("quantity") * col("price"))
+df.show()
+
+#Pandas
+# 3 Classify total_value
+# Question: Add a column value_tier: “High” if > 1000 “Medium” if 500–1000 “Low” otherwise
+for i, row in pandas_df.iterrows():
+    if row["total_value"] > 1000:
+        pandas_df.at[i, "value_tier"] = "High"
+    elif row["total_value"] >= 500:
+        pandas_df.at[i, "value_tier"] = "Medium"
+    else:
+        pandas_df.at[i, "value_tier"] = "Low"
+display(pandas_df)
+
+
+#Pyspark
+# 3 Classify total_value
+# Question: Add a column value_tier: “High” if > 1000 “Medium” if 500–1000 “Low” otherwise
+df = df.withColumn(
+    "value_tier",
+    when(col("total_value") > 1000, "High")
+    .when(col("total_value") >= 500, "Medium")
+    .otherwise("Low")
+)
+df.show()
+
+#Pandas
+# 4 Loop filter
+# Question: Get all rows where region == "East" and value_tier == "High".
+import pandas
+
+filtered_rows = []
+for i, row in pandas_df.iterrows():
+    if row["region"] == "East" and row["value_tier"] == "High":
+        filtered_rows.append(row)
+
+result = pandas.DataFrame(filtered_rows)
+display(pandas_df)
+
+
+#Pyspark
+# 4 Loop filter
+# Question: Get all rows where region == "East" and value_tier == "High".
+df = df.withColumn(
+    "value_tier",
+    when(col("total_value") > 1000, "High")
+    .when(col("total_value") >= 500, "Medium")
+    .otherwise("Low")
+)
+df.show()
+
+#Pandas
+#5 Aggregate results (instead of looping to sum)
+# Question:Get total revenue and order count by region.
+summary = {}
+for i, row in pandas_df.iterrows():
+    region = row["region"]
+    if region not in summary:
+        summary[region] = {"revenue": 0, "orders": 0}
+    summary[region]["revenue"] += row["total_value"]
+    summary[region]["orders"] += 1
+import pandas as pd
+pd.DataFrame.from_dict(summary, orient="index")
+
+
+#Pyspark
+#5 Aggregate results (instead of looping to sum)
+# Question:Get total revenue and order count by region.
+
+from pyspark.sql.functions import sum as _sum, count
+
+df.groupBy("region").agg(_sum("total_value").alias("revenue"), count("*").alias("orders")).show()
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Regex cleansing
+
+##Python
+import pandas as pd
+import re
+
+data = {
+    "customer_id": [1,2,3,4,5,6,7,8],
+    "customer_phone": [
+        "(212) 555-7788",
+        "212.555.9011",
+        "2125553344",
+        "+1 212 555 8822",
+        "212-555-0033",
+        "N/A",
+        None,
+        ""
+    ]
+}
+
+pdf = pd.DataFrame(data)
+
+# strip non-digits
+pdf["clean"] = pdf["customer_phone"].astype(str).apply(lambda x: re.sub(r"\D", "", x))
+
+# drop invalid rows
+pdf = pdf[pdf["clean"].str.len() == 10]
+
+# apply formatting
+pdf["clean_formatted"] = pdf["clean"].apply(lambda x: f"{x[0:3]}-{x[3:6]}-{x[6:10]}")
+
+print(pdf)
+
+
+
+##Pyspark
+from pyspark.sql import Row
+from pyspark.sql.functions import regexp_replace, col, length, substring, concat, lit
+
+data = [
+    Row(customer_id=1, customer_phone="(212) 555-7788"),
+    Row(customer_id=2, customer_phone="212.555.9011"),
+    Row(customer_id=3, customer_phone="2125553344"),
+    Row(customer_id=4, customer_phone="+1 212 555 8822"),
+    Row(customer_id=5, customer_phone="212-555-0033"),
+    Row(customer_id=6, customer_phone="N/A"),
+    Row(customer_id=7, customer_phone=None),
+    Row(customer_id=8, customer_phone="")
+]
+
+df = spark.createDataFrame(data)
+
+df_clean = (
+    df.withColumn("digits", regexp_replace(col("customer_phone"), r"\D", ""))  # keep only digits
+      .filter(length(col("digits")) == 10)                                     # ensure valid
+      .withColumn(
+          "clean_formatted",
+          concat(
+              substring(col("digits"), 1, 3),
+              lit("-"),
+              substring(col("digits"), 4, 3),
+              lit("-"),
+              substring(col("digits"), 7, 4)
+          )
+      )
+)
+
+df_clean.show(truncate=False)
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Silver Transformation
+
+
+
+
+%sql
+--Before You Start: Reset Your Bronze Table
+DROP TABLE IF EXISTS orders_raw;
+DROP TABLE IF EXISTS orders_silver;
+
+
+#Bronze Data (Same for All Questions)
+from pyspark.sql import Row
+
+raw_data = [
+    Row(order_id=1, customer_id=1001, order_date="2025-01-05", amount="100",    status="shipped"),
+    Row(order_id=2, customer_id=1002, order_date="2025-01-06", amount="250",    status="Shipped"),
+    Row(order_id=3, customer_id=1003, order_date="2025-01-07", amount="150",    status="SHIPPED"),
+    Row(order_id=4, customer_id=1001, order_date="2025-01-05", amount="100",    status="shipped"),
+    Row(order_id=5, customer_id=1004, order_date="2025-01-08", amount="INVALID",status="shipped"),
+    Row(order_id=6, customer_id=1005, order_date="2025-01-09", amount="-50",    status="returned"),
+    Row(order_id=7, customer_id=1006, order_date="2025-01-10", amount="500",    status="Delivered"),
+    Row(order_id=8, customer_id=1007, order_date="2025-01-10", amount="450",    status="delivered"),
+    Row(order_id=9, customer_id=1001, order_date="2025-01-05", amount="100",    status="SHIPPED"),
+    Row(order_id=10, customer_id=1008, order_date="2025-01-11", amount="250",   status="PENDING")
+]
+
+bronze_df = spark.createDataFrame(raw_data)
+
+bronze_df.write.format("delta").mode("overwrite").saveAsTable("orders_raw")
+
+display(spark.table("orders_raw"))
+
+
+#Question 1 — Standardize Status Column
+# Goal: Convert all status values to uppercase.
+from pyspark.sql.functions import upper, col
+
+orders_raw = spark.table("orders_raw")
+
+silver_df = orders_raw.withColumn("status_clean", upper(col("status")))
+
+silver_df.write.format("delta").mode("overwrite").saveAsTable("orders_silver_status")
+
+display(spark.table("orders_silver_status"))
+
+#Question 2 — Convert Amount Column to Numeric
+# Some amounts contain:"INVALID"
+#negative values
+#strings instead of numbers
+# Goal:convert valid numbers
+# turn invalid values into NULL
+# This is classic Silver-zone cleansing.
+
+from pyspark.sql.functions import when, col
+
+orders_raw = spark.table("orders_raw")
+
+silver_df = (
+    orders_raw
+        .withColumn("amount_clean",
+            when(col("amount").rlike("^[0-9]+$"), col("amount").cast("double"))
+            .otherwise(None)
+        )
+)
+
+silver_df.write.format("delta").mode("overwrite").saveAsTable("orders_silver_amount")
+
+display(spark.table("orders_silver_amount"))
+
+
+#Question 3 — Remove Duplicate Orders
+# Duplicate = same (order_id, customer_id, order_date, amount)
+orders_raw = spark.table("orders_raw")
+
+silver_df = orders_raw.dropDuplicates(
+    ["order_id", "customer_id", "order_date", "amount"]
+)
+
+silver_df.write.format("delta").mode("overwrite").saveAsTable("orders_silver_dedup")
+
+display(spark.table("orders_silver_dedup"))
+
+
+
+#Question 4 — Add Derived Columns (Year, Month, Day)
+# Classic Silver enhancement.
+from pyspark.sql.functions import to_date, year, month, dayofmonth, col
+
+orders_raw = spark.table("orders_raw")
+
+silver_df = (
+    orders_raw
+        .withColumn("order_date_clean", to_date(col("order_date")))
+        .withColumn("order_year", year(col("order_date_clean")))
+        .withColumn("order_month", month(col("order_date_clean")))
+        .withColumn("order_day", dayofmonth(col("order_date_clean")))
+)
+
+silver_df.write.format("delta").mode("overwrite").saveAsTable("orders_silver_dates")
+
+display(spark.table("orders_silver_dates"))
+
+
+#Question 5 — Filter Out Invalid or Bad Records (Silver Curation)
+# A Silver table should NOT contain:
+# negative amounts
+# NULL amounts
+# bad dates
+from pyspark.sql.functions import to_date, col
+
+orders_raw = spark.table("orders_raw")
+
+silver_df = (
+    orders_raw
+        # Convert date
+        .withColumn("order_date_clean", to_date(col("order_date")))
+        # Convert amount
+        .withColumn("amount_clean", 
+            when(col("amount").rlike("^[0-9]+$"), col("amount").cast("double"))
+            .otherwise(None)
+        )
+        # Filter out bad records
+        .filter(col("amount_clean").isNotNull())
+        .filter(col("amount_clean") > 0)
+        .filter(col("order_date_clean").isNotNull())
+)
+
+silver_df.write.format("delta").mode("overwrite").saveAsTable("orders_silver_clean")
+
+display(spark.table("orders_silver_clean"))
